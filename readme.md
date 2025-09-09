@@ -29,21 +29,26 @@ Supports OAuth login, profile fetch (`/me`), artist lookup by ID, and secure tok
 ```bash
 git clone https://github.com/<your-username>/spotify-fastapi-project.git
 cd spotify-fastapi-project
+```
 
 ### 2. Create a virtual environment
+```bash
 python -m venv venv
 source venv/bin/activate   # macOS/Linux
 venv\Scripts\activate      # Windows
-
+```
 ### 3. Install dependencies
+```bash
 pip install -r requirements.txt
-
+```
 ### 4. Set up environment variables (Create a .env file in the project root)
+```bash
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/callback
 APP_SECRET_KEY=your_random_secret_key
-
+```
 ### 5. Run the server
+```bash
 uvicorn app_step3:app --reload
 ```
