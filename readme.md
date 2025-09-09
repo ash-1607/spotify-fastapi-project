@@ -15,8 +15,3 @@ Supports OAuth login, profile fetch (`/me`), artist lookup by ID, and secure tok
 - httpx
 - Spotify Web API
 
-## Setup
-1. Clone this repo  
-   ```bash
-   git clone https://github.com/<your-username>/spotify-fastapi-project.git
-   cd spotify-fastapi-project
