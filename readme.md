@@ -1,54 +1,55 @@
-# Spotify FastAPI Project
+# Full-Stack Spotify Demo (FastAPI + React Native)
 
-A simple FastAPI backend that integrates with the **Spotify Web API**.  
-Supports OAuth login, profile fetch (`/me`), artist lookup by ID, and secure token refresh.
+A simple demo project that securely connects a React Native mobile app to the Spotify API using a FastAPI (Python) backend.
 
----
+This project uses a **Backend-for-Frontend (BFF)** pattern: the mobile app *only* talks to our backend, and the backend handles all secure OAuth and Spotify API calls.
 
-## Features
-- 🔑 Login with Spotify (OAuth2 Authorization Code flow)
-- 👤 Get current user profile (`/me`)
-- 🎵 Fetch artist details by ID (`/artist/{id}`)
-- 🚪 Logout and clear session
-- 🔄 Automatic token refresh when expired
+## Project Structure
 
----
+This is a monorepo containing both the backend and frontend:
 
-## Tech Stack
-- **Python 3.8+**
-- **FastAPI** (backend framework)
-- **httpx** (async HTTP client)
-- **Uvicorn** (ASGI server)
-- **Spotify Web API**
+* `/backend`: The FastAPI (Python) server.
+* `/mobile-app`: The React Native (TypeScript) mobile application.
+
+## How to Run
+
+You will need **3 terminals** running at the same time.
 
 ---
 
-## Setup
+### Terminal 1: Run the Backend (FastAPI)
 
-### 1. Clone this repo
+1.  Create a `.env` file in this folder with your Spotify API keys.
+2.  Install dependencies: `pip install -r requirements.txt`
+3.  Run the server:
+
 ```bash
-git clone https://github.com/<your-username>/spotify-fastapi-project.git
-cd spotify-fastapi-project
+cd backend
+uvicorn app_step3:app --host 0.0.0.0 --port 8000
+```
+### Terminal 2: Run the Tunnel (ngrok)
+
+Spotify's API requires a public HTTPS URL.
+```bash
+ngrok http 8000
 ```
 
-### 2. Create a virtual environment
+**IMPORTANT**: You must copy the https URL from ngrok and paste it into:
+
+1. Your Spotify Developer Dashboard (as a Redirect URI).
+
+2. Your backend/.env file.
+
+3. Your mobile-app/src/api.ts file.
+
+### Terminal 3: Run the Mobile App (React Native)
+1. Install dependencies: 
 ```bash
-python -m venv venv
-source venv/bin/activate   # macOS/Linux
-venv\Scripts\activate      # Windows
+npm cd mobile-app
 ```
-### 3. Install dependencies
+2. Run the app
 ```bash
-pip install -r requirements.txt
-```
-### 4. Set up environment variables (Create a .env file in the project root)
-```bash
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/callback
-APP_SECRET_KEY=your_random_secret_key
-```
-### 5. Run the server
-```bash
-uvicorn app_step3:app --reload
+npx react-native run-ios
+# OR
+npx react-native run-android
 ```
