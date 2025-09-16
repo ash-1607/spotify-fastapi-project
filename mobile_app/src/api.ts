@@ -14,7 +14,7 @@ import axios from 'axios';
 
 // ✅ This URL looks correct for now.
 // WARNING: Remember to update this every time you restart ngrok!
-const API_BASE_URL = 'https://658a2340decb.ngrok-free.app';
+const API_BASE_URL = 'https://7bce71476001.ngrok-free.app';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
