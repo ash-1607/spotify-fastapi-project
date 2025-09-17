@@ -35,3 +35,50 @@ export interface PlaylistPagingObject {
   next: string | null;
   previous: string | null;
 }
+
+//FOR VIEWING TRACKS IN THE PLAYLIST
+export interface Artist {
+  id: string;
+  name: string;
+  images?: SpotifyImage[]; // Add this (make it optional)
+  genres?: string[];      // Add this (make it optional)
+}
+
+export interface Album {
+  id: string;
+  name: string;
+  images: SpotifyImage[];
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  album: Album;
+  artists: Artist[];
+}
+
+export interface PlaylistItem {
+  track: Track;
+}
+
+// This is the object our new /playlist/{id} endpoint will return
+export interface PlaylistTracksResponse {
+  items: PlaylistItem[];
+}
+
+// This is what our backend's /me/top/tracks endpoint returns
+export interface TopTracksResponse {
+  items: Track[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// This is what our backend's /me/top/artists endpoint returns
+export interface TopArtistsResponse {
+  items: Artist[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+

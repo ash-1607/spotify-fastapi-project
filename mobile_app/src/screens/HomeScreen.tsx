@@ -191,6 +191,17 @@ export default function HomeScreen({ navigation }: any) {
           title="View My Playlists"
           onPress={() => navigation.navigate('Playlists')}
         />
+
+        <Button
+          title="View Top Tracks"
+          onPress={() => navigation.navigate('TopTracks')}
+        />
+
+        <Button
+          title="View Top Artists"
+          onPress={() => navigation.navigate('TopArtists')}
+        />
+
         <Button
           title="Logout"
           onPress={handleLogout}

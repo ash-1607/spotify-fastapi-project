@@ -16,32 +16,68 @@ import { SafeAreaView } from 'react-native-safe-area-context'; // <--- ADD THIS 
 import api from '../api'; // Import our central, AUTHENTICATED api instance
 import { SimplifiedPlaylist, PlaylistPagingObject } from '../types'; // Import our types
 
+//FOR MAKING THE PLAYLISTS CLICKABLE
+// import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../App';
+
+
+// 3. DEFINE new props for PlaylistItem. It now EXPECTS navigation as a prop.
+// interface PlaylistItemProps {
+//   item: SimplifiedPlaylist;
+//   navigation: NativeStackNavigationProp<RootStackParamList>;
+// }
+interface PlaylistItemProps {
+  item: SimplifiedPlaylist;
+  // This tells TypeScript to expect the specific 'navigation' prop 
+  // that comes from the 'Playlists' screen props.
+  navigation: NativeStackScreenProps<RootStackParamList, 'Playlists'>['navigation'];
+}
+
 /**
  * A reusable component to render a single row in our playlist.
  */
-const PlaylistItem = ({ item }: { item: SimplifiedPlaylist }) => (
-  // We'll make this a button later to navigate to a PlaylistDetail screen
-  <TouchableOpacity style={styles.itemContainer} activeOpacity={0.7}>
-    <Image
-      // Use the first image URL, or a placeholder if no image exists
-      source={{ uri: item.images[0]?.url || 'https://via.placeholder.com/60' }}
-      style={styles.playlistImage}
-    />
-    <View style={styles.textContainer}>
-      <Text style={styles.playlistName} numberOfLines={1}>
-        {item.name}
-      </Text>
-      <Text style={styles.trackInfo} numberOfLines={1}>
-        By {item.owner.display_name} • {item.tracks.total} tracks
-      </Text>
-    </View>
-  </TouchableOpacity>
-);
+const PlaylistItem = ({ item, navigation }: PlaylistItemProps) => {
+  // 1. Get the navigation hook
+  // const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  return (
+    // 2. The TouchableOpacity now has an onPress prop
+    <TouchableOpacity
+      style={styles.itemContainer}
+      activeOpacity={0.7}
+      onPress={() =>
+        // 3. Navigate to the new screen, passing the playlist's ID and name
+        navigation.navigate('PlaylistDetail', {
+          playlistId: item.id,
+          playlistName: item.name,
+        })
+      }
+    >
+      <Image
+        // Use the first image URL, or a placeholder if no image exists
+        source={{ uri: item.images[0]?.url || 'https://via.placeholder.com/60' }}
+        style={styles.playlistImage}
+      />
+      <View style={styles.textContainer}>
+        <Text style={styles.playlistName} numberOfLines={1}>
+          {item.name}
+        </Text>
+        <Text style={styles.trackInfo} numberOfLines={1}>
+          By {item.owner.display_name} • {item.tracks.total} tracks
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// 7. DEFINE the props for the Screen component itself
+type PlaylistsScreenProps = NativeStackScreenProps<RootStackParamList, 'Playlists'>;
 
 /**
  * This is the main screen component.
  */
-const PlaylistsScreen = () => {
+const PlaylistsScreen = ({ navigation }: PlaylistsScreenProps) => {
   const [playlists, setPlaylists] = useState<SimplifiedPlaylist[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +93,11 @@ const PlaylistsScreen = () => {
         // login flow in HomeScreen! This calls our FastAPI /playlists endpoint.
         const response = await api.get<PlaylistPagingObject>('/playlists');
         
-        // Save the 'items' array from the response into our state
-        setPlaylists(response.data.items);
+        // Just like before, we must filter the array to remove any null items
+        // before we save it to state.
+        const validPlaylists = response.data.items.filter(item => item !== null);
+
+        setPlaylists(validPlaylists);
       } catch (err: any) {
         console.error('Failed to fetch playlists:', err);
         const detail = err.response?.data?.detail || 'Failed to load playlists.';
@@ -97,7 +136,9 @@ const PlaylistsScreen = () => {
     <SafeAreaView style={styles.container}>
       <FlatList
         data={playlists}
-        renderItem={PlaylistItem} // Use our custom row component
+        renderItem={({ item }) => (
+          <PlaylistItem item={item} navigation={navigation} />
+        )}
         keyExtractor={item => item.id}
         ListHeaderComponent={<Text style={styles.header}>Your Playlists</Text>}
         contentContainerStyle={{ paddingBottom: 20 }}
