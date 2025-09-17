@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel 
+from typing import Optional
 
 # for playlists fetching
 import logging
@@ -46,6 +47,11 @@ app = FastAPI(title="Spotify — Step 3 (OAuth + /me)")
 # Simple session cookie to hold oauth tokens (good enough for local dev)
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET_KEY, max_age=7*24*3600)
 
+# --- GOOD PRACTICE: Define field masks as constants near the top ---
+# We use this to ask Spotify for *only* the data we need.
+TOP_TRACKS_FIELDS = "items(id,name,duration_ms,album(images),artists(name))"
+TOP_ARTISTS_FIELDS = "items(id,name,genres,images)"
+
 # ✅ Add this for React Native / mobile access
 app.add_middleware(
     CORSMiddleware,
@@ -73,12 +79,6 @@ def root(request: Request):
         return "<p>✅ Logged in — <a href='/me'>/me</a> | <a href='/logout'>Logout</a></p>"
     return "<p>❌ Not logged in — <a href='/login'>Login with Spotify</a></p>"
 
-# @app.get("/login")
-# def login(request: Request):
-#     state = secrets.token_urlsafe(16)
-#     # store state in the session to validate in callback (simple CSRF protection)
-#     request.session["oauth_state"] = state
-#     return RedirectResponse(oauth_url(state))
 @app.get("/login")
 def login(request: Request):
     # generate a state just to include in the URL (optional)
@@ -140,35 +140,6 @@ async def callback(request: Request, code: Optional[str] = None, state: Optional
         # if any oauth_state exists, remove it (clean up)
     #     request.session.pop("oauth_state", None)
     # return RedirectResponse("/")
-
-# @app.get("/callback")
-# async def callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
-#     if error:
-#         raise HTTPException(400, f"Spotify returned error: {error}")
-#     if not code or not state:
-#         raise HTTPException(400, "Missing code or state")
-#     saved_state = request.session.get("oauth_state")
-#     if not saved_state or saved_state != state:
-#         raise HTTPException(400, "Invalid state (possible CSRF)")
-    
-#     # Exchange code for tokens
-#     async with httpx.AsyncClient() as client:
-#         data = {
-#             "grant_type": "authorization_code",
-#             "code": code,
-#             "redirect_uri": SPOTIFY_REDIRECT_URI,
-#         }
-#         r = await client.post(TOKEN_URL, data=data, auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET))
-#         if r.status_code != 200:
-#             raise HTTPException(400, f"Token exchange failed: {r.text}")
-#         tokens = r.json()
-#         tokens["expires_at"] = int(time.time()) + int(tokens.get("expires_in", 3600)) - 30
-#         request.session["spotify_tokens"] = tokens
-#         # remove oauth_state (no longer needed)
-#         request.session.pop("oauth_state", None)
-#     return RedirectResponse("/")
-
-# --- ADD ALL THIS CODE TO app_step3.py ---
 
 
 # 1. NEW REUSABLE REFRESH FUNCTION
@@ -364,33 +335,6 @@ async def auth_profile_mobile(body: MobileAuthBody):
         "token": mobile_session_token
     }
     
-# @app.get("/auth/profile")
-# async def auth_profile(code: Optional[str] = None):
-#     """
-#     Exchange a one-time code (issued at /callback) for the user's Spotify profile.
-#     Single-use and short-lived.
-#     """
-#     if not code:
-#         raise HTTPException(400, "Missing code")
-
-#     entry = AUTH_CODES.pop(code, None)  # single-use: pop immediately
-#     if not entry or entry.get("expires_at", 0) < time.time():
-#         raise HTTPException(400, "Invalid or expired code")
-
-#     tokens = entry["tokens"]
-#     access_token = tokens.get("access_token")
-#     if not access_token:
-#         raise HTTPException(400, "No access token available")
-
-#     # call Spotify /me with the stored access token
-#     async with httpx.AsyncClient() as client:
-#         r = await client.get(API_BASE + "/me", headers={"Authorization": f"Bearer {access_token}"})
-#         if r.status_code != 200:
-#             # pass through error
-#             raise HTTPException(r.status_code, r.text)
-#         return r.json()
-
-
 # 3. THIS IS THE NEW /playlists ENDPOINT YOU WERE MISSING
 @app.get("/playlists")
 async def get_user_playlists(session_data: dict = Depends(get_current_mobile_session)):
@@ -412,6 +356,30 @@ async def get_user_playlists(session_data: dict = Depends(get_current_mobile_ses
         logger.error(f"Spotify API error fetching playlists: {e}")
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
 
+# --- ADD THIS NEW ENDPOINT to app_step3.py ---
+
+@app.get("/playlist/{playlist_id}")
+async def get_playlist_tracks(playlist_id: str, session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Fetches the tracks for a specific playlist from Spotify.
+    Protected by our mobile 'Bearer <token>' dependency.
+    """
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # We use the 'fields' param to ask Spotify for *only* the data we need.
+    # This makes our app faster by reducing payload size.
+    fields = "items(track(id,name,album(images),artists(name)))"
+    api_url = f"{API_BASE}/playlists/{playlist_id}/tracks?limit=100&fields={fields}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Spotify API error fetching playlist tracks: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
 
 # --- ADD this new mobile logout endpoint ---
 
@@ -441,3 +409,39 @@ async def auth_logout_mobile(authorization: str = Header(None)):
         logger.error(f"Error during mobile logout: {e}")
         # Fail gracefully
         raise HTTPException(status_code=400, detail="Invalid authorization header for logout")
+    
+
+# TOP TRACKS/ARTISTS
+@app.get("/me/top/{type}")
+async def get_top_stats(
+    type: str, 
+    time_range: Optional[str] = "medium_term", 
+    session_data: dict = Depends(get_current_mobile_session)
+    ):
+    # 2. Add validation for the type
+    if type not in ["artists", "tracks"]:
+        raise HTTPException(status_code=400, detail="Invalid type. Must be 'artists' or 'tracks'.")
+    
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # 3. Dynamically choose the correct fields mask
+    fields = TOP_TRACKS_FIELDS if type == "tracks" else TOP_ARTISTS_FIELDS
+
+    # 4. Build our query params for Spotify. httpx will handle encoding this.
+    params = {
+        "limit": 50,
+        "time_range": time_range,
+        "fields": fields
+    }
+
+    api_url = f"{API_BASE}/me/top/{type}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Spotify API error fetching /me/top/{type}: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
