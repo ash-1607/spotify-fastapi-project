@@ -95,7 +95,9 @@ const PlaylistsScreen = ({ navigation }: PlaylistsScreenProps) => {
         
         // Just like before, we must filter the array to remove any null items
         // before we save it to state.
-        const validPlaylists = response.data.items.filter(item => item !== null);
+        const validPlaylists = response.data.items.filter(
+          item => item !== null && item.images && item.owner
+        );
 
         setPlaylists(validPlaylists);
       } catch (err: any) {

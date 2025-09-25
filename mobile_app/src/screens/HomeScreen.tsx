@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { Text, Button, StyleSheet, Linking, Alert, View, ActivityIndicator } from "react-native";
+import { Text, Button, StyleSheet, Linking, Alert, View, ActivityIndicator, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import InAppBrowser from "react-native-inappbrowser-reborn";
 import api, { setAuthToken } from "../api"; // 👈 Make sure to import setAuthToken
 import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
 
-// Define shapes
-interface UserProfile {
-  display_name: string;
-  email: string;
-  id: string;
-}
+import { useIsFocused } from '@react-navigation/native'; // --- 1. NEW IMPORT ---
+import { NowPlayingResponse, UserProfile } from '../types'; // --- 2. UPDATED IMPORT ---
+
+// // Define shapes
+// interface UserProfile {
+//   display_name: string;
+//   email: string;
+//   id: string;
+// }
 
 interface AuthResponse {
   profile: UserProfile;
@@ -19,10 +22,45 @@ interface AuthResponse {
 
 const STORAGE_KEY = 'spotify_session_token'; // Define key for AsyncStorage
 
+// --- 3. NEW WIDGET COMPONENT ---
+// This is a new component to render the "Now Playing" data
+const NowPlayingWidget = ({ data }: { data: NowPlayingResponse | null }) => {
+  if (!data || !data.is_playing || !data.item) {
+    return (
+      <View style={styles.widgetContainer}>
+        <Text style={styles.widgetTitle}>NOW PLAYING</Text>
+        <Text style={styles.widgetText}>Nothing is currently playing.</Text>
+      </View>
+    );
+  }
+
+  const { item } = data;
+  const imageUri = item.album.images[0]?.url || 'https://via.placeholder.com/60';
+  const artists = item.artists.map(a => a.name).join(', ');
+
+  return (
+    <View style={styles.widgetContainer}>
+      <Text style={styles.widgetTitle}>CURRENTLY PLAYING</Text>
+      <View style={styles.nowPlayingContent}>
+        <Image source={{ uri: imageUri }} style={styles.nowPlayingImage} />
+        <View style={styles.trackTextContainer}>
+          <Text style={styles.trackName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.trackArtist} numberOfLines={1}>{artists}</Text>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+
 export default function HomeScreen({ navigation }: any) {
   const [user, setUser] = useState<UserProfile | null>(null);
   // Add a new loading state for the initial session check
   const [loading, setLoading] = useState(true); // Start true to check session
+
+  // --- 4. NEW STATE FOR POLLING ---
+  const [nowPlaying, setNowPlaying] = useState<NowPlayingResponse | null>(null);
+  const isFocused = useIsFocused(); // Hook to check if screen is active
 
   // --- NEW: Session Loading Effect ---
   // This effect runs ONCE when the app starts.
@@ -73,6 +111,33 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
   // Note: This is a separate effect just for the listener
 
+  // --- 5. NEW POLLING EFFECT ---
+  // This effect will run when the user is logged in AND the screen is focused
+  useEffect(() => {
+    const fetchCurrentlyPlaying = async () => {
+      if (!user) return; // Don't fetch if logged out
+      try {
+        const response = await api.get<NowPlayingResponse>('/currently-playing');
+        setNowPlaying(response.data);
+      } catch (err) {
+        console.warn('Could not fetch currently playing track', err);
+        setNowPlaying(null); // Clear on error
+      }
+    };
+
+    if (isFocused && user) {
+      // 1. Fetch immediately when screen is focused
+      fetchCurrentlyPlaying();
+      // 2. Then, set an interval to fetch every 10 seconds
+      const intervalId = setInterval(fetchCurrentlyPlaying, 10000); // 10,000ms = 10s
+      
+      // 3. Cleanup: clear interval when screen is unfocused or unmounted
+      return () => clearInterval(intervalId);
+    } else {
+      // If screen is not focused, or user is logged out, clear the data
+      setNowPlaying(null);
+    }
+  }, [isFocused, user]); // Re-run this hook whenever focus or user state changes
 
   // 👇 REPLACE your old handleDeepLink function with this one
   const handleDeepLink = async (url: string) => {
@@ -144,19 +209,6 @@ export default function HomeScreen({ navigation }: any) {
     }
   };
 
-
-  // const fetchProfile = async () => {
-  //   try {
-  //     const response = await axios.get<UserProfile>(`${api.defaults.baseURL}/me`, {
-  //       withCredentials: true,
-  //     });
-  //     setUser(response.data);
-  //   } catch (err) {
-  //     console.error("Error fetching profile", err);
-  //   }
-  // };
-
-
   // --- RENDER LOGIC ---
 
   // Show a full-screen loader while we check for an existing session
@@ -182,6 +234,9 @@ export default function HomeScreen({ navigation }: any) {
   // Otherwise, we ARE logged in. Show the profile and other buttons.
   return (
     <SafeAreaView style={styles.container}>
+      {/* ADDED THE NEW WIDGET AT THE TOP */}
+      <NowPlayingWidget data={nowPlaying} />
+
       <Text style={styles.title}>✅ Logged in as</Text>
       <Text style={styles.text}>{user.display_name}</Text>
       <Text style={styles.text}>{user.email}</Text>
@@ -235,5 +290,50 @@ const styles = StyleSheet.create({
     marginTop: 30,
     width: '80%',
     gap: 15, // Adds vertical spacing between buttons
-  }
+  },
+  // --- NEW STYLES FOR THE WIDGET ---
+  widgetContainer: {
+    width: '100%',
+    padding: 15,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    marginBottom: 30,
+  },
+  widgetTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#666',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  widgetText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  nowPlayingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  nowPlayingImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 4,
+    marginRight: 12,
+  },
+  trackTextContainer: {
+    flex: 1,
+  },
+  trackName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  trackArtist: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
 });
+
+// export default HomeScreen;

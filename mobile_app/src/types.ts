@@ -82,3 +82,15 @@ export interface TopArtistsResponse {
   offset: number;
 }
 
+// This is the object returned by the /currently-playing endpoint
+export interface NowPlayingResponse {
+  is_playing: boolean;
+  progress_ms: number;
+  item: Track; // The full track object
+}
+
+export interface UserProfile {
+  display_name: string;
+  email: string;
+  id: string;
+}

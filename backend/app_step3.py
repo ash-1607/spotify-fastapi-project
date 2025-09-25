@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 import httpx
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel 
@@ -444,4 +444,35 @@ async def get_top_stats(
             return response.json()
     except httpx.HTTPStatusError as e:
         logger.error(f"Spotify API error fetching /me/top/{type}: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
+
+@app.get("/currently-playing")
+async def get_currently_playing(session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Gets the user's currently playing track.
+    Requires the 'user-read-currently-playing' scope.
+    """
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # This Spotify endpoint includes 'market' to get the correct track data
+    api_url = f"{API_BASE}/me/player/currently-playing?market=US"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, headers=headers)
+
+            # --- SPECIAL HANDLING ---
+            # If nothing is playing, Spotify returns a 204 No Content.
+            # We will catch this and return a clean "not playing" object.
+            if response.status_code == 204:
+                return JSONResponse(content={"is_playing": False}, status_code=200)
+            
+            response.raise_for_status() # Raise errors for anything else
+            
+            # If status is 200, something is playing
+            return response.json()
+            
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Spotify API error fetching currently-playing: {e}")
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
