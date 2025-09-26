@@ -24,9 +24,13 @@ import datetime
 
 # for ai analysis
 import google.generativeai as genai
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Add this line near your other global variables to get the logger
-logger = logging.getLogger("uvicorn")
+# logger = logging.getLogger("uvicorn")
 
 load_dotenv()
 
@@ -549,53 +553,152 @@ async def create_forgotten_gems_playlist(session_data: dict = Depends(get_curren
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
     
 
+# @app.get("/me/ai-analysis")
+# async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
+#     """
+#     Fetches user's top data, sends it to the Gemini AI,
+#     and returns a generated "music taste" analysis.
+#     """
+#     access_token = session_data["access_token"]
+#     headers = {"Authorization": f"Bearer {access_token}"}
+
+#     try:
+#         # 1. Fetch user's top data from Spotify
+#         async with httpx.AsyncClient() as client:
+#             artist_resp = await client.get(
+#                 f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", 
+#                 headers=headers
+#             )
+#             artist_resp.raise_for_status()
+
+#             track_resp = await client.get(
+#                 f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term", 
+#                 headers=headers
+#             )
+#             track_resp.raise_for_status()
+
+#         # 2. Extract the names to build our prompt
+#         top_artists = [a['name'] for a in artist_resp.json()['items']]
+#         top_tracks = [t['name'] for t in track_resp.json()['items']]
+
+#         # 3. Engineer the prompt for the AI
+#         prompt = f"""
+#         You are a witty, expert music critic. 
+#         A user has provided their Spotify data:
+#         - Top 5 Artists: {', '.join(top_artists)}
+#         - Top 10 Tracks: {', '.join(top_tracks)}
+
+#         Based on this, write a short, fun, and insightful "roast" or "analysis" 
+#         of their music taste in 100 words or less. 
+#         Speak directly to the user (e.g., "Your taste is...").
+#         """
+
+#         # 4. Call the Generative AI
+#         model = genai.GenerativeModel('gemini-pro')
+#         response = await model.generate_content(prompt)
+
+#         # 5. Return the AI's generated text
+#         return {"analysis": response.text}
+
+#     except Exception as e:
+#         logger.error(f"Error during AI analysis: {e}")
+#         raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
+
 @app.get("/me/ai-analysis")
 async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
     """
-    Fetches user's top data, sends it to the Gemini AI,
-    and returns a generated "music taste" analysis.
+    Fetch user's Spotify top items, call a lower-latency Gemini model,
+    and return a short analysis. Defensive, logged, and non-blocking.
     """
-    access_token = session_data["access_token"]
+    t0 = time.monotonic()
+
+    # basic validation
+    access_token = session_data.get("access_token")
+    if not access_token:
+        logger.warning("Missing access_token in session_data")
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
     headers = {"Authorization": f"Bearer {access_token}"}
 
     try:
-        # 1. Fetch user's top data from Spotify
-        async with httpx.AsyncClient() as client:
+        # 1) Fetch Spotify data with short timeouts
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
             artist_resp = await client.get(
-                f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", 
-                headers=headers
+                f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term",
+                headers=headers,
             )
             artist_resp.raise_for_status()
 
             track_resp = await client.get(
-                f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term", 
-                headers=headers
+                f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term",
+                headers=headers,
             )
             track_resp.raise_for_status()
 
-        # 2. Extract the names to build our prompt
-        top_artists = [a['name'] for a in artist_resp.json()['items']]
-        top_tracks = [t['name'] for t in track_resp.json()['items']]
+        t1 = time.monotonic()
 
-        # 3. Engineer the prompt for the AI
-        prompt = f"""
-        You are a witty, expert music critic. 
-        A user has provided their Spotify data:
-        - Top 5 Artists: {', '.join(top_artists)}
-        - Top 10 Tracks: {', '.join(top_tracks)}
+        # Defensive extraction & truncation
+        top_artists = [a.get("name", "") for a in artist_resp.json().get("items", [])][:5]
+        top_tracks = [t.get("name", "") for t in track_resp.json().get("items", [])][:10]
 
-        Based on this, write a short, fun, and insightful "roast" or "analysis" 
-        of their music taste in 100 words or less. 
-        Speak directly to the user (e.g., "Your taste is...").
-        """
+        # Build a compact prompt (smaller prompt -> lower latency / cost)
+        prompt = (
+            "You are a witty, expert music critic. "
+            "A user has provided their Spotify data:\n"
+            f"- Top 5 Artists: {', '.join(top_artists)}\n"
+            f"- Top 10 Tracks: {', '.join(top_tracks)}\n\n"
+            "Write a short, fun, and insightful roast/analysis of their music taste in 100 words or less. "
+            "Speak directly to the user (use 'you')."
+        )
 
-        # 4. Call the Generative AI
-        model = genai.GenerativeModel('gemini-pro')
-        response = await model.generate_content(prompt)
+        # 2) Call the model in a thread if SDK is synchronous
+        def call_model_sync(p: str) -> str:
+            # pick a flash model; change if your account permits others
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            # generate_content shape varies between SDK versions; pass a dict for clarity
+            result = model.generate_content(
+                {
+                    "contents": p,
+                    "maxOutputTokens": 160,
+                    "candidateCount": 1,
+                }
+            )
 
-        # 5. Return the AI's generated text
-        return {"analysis": response.text}
+            # handle common return shapes
+            if hasattr(result, "text"):
+                return result.text() if callable(result.text) else result.text
+            if getattr(result, "response", None) is not None:
+                r = result.response
+                return r.text() if callable(r.text) else getattr(r, "text", str(r))
+            # fallback
+            return str(result)
 
-    except Exception as e:
-        logger.error(f"Error during AI analysis: {e}")
+        t_model_start = time.monotonic()
+        try:
+            ai_text = await asyncio.to_thread(call_model_sync, prompt)
+        except Exception as e:
+            # Log full exception for debugging and return a provider-specific error
+            logger.exception("AI model call failed: %s", e)
+            raise HTTPException(status_code=502, detail="AI provider error")
+
+        t2 = time.monotonic()
+        logger.info(
+            "AI analysis timings (s): total=%.2f fetch_spotify=%.2f model=%.2f",
+            t2 - t0,
+            t1 - t0,
+            t2 - t1,
+        )
+
+        # Return the AI text (trim/limit length defensively)
+        safe_text = (ai_text or "").strip()
+        if len(safe_text) > 5000:
+            safe_text = safe_text[:5000] + "..."
+
+        return JSONResponse({"analysis": safe_text})
+
+    except HTTPException:
+        # Re-throw HTTPExceptions we raised above (401/502)
+        raise
+    except Exception as exc:
+        logger.exception("Unhandled error during /me/ai-analysis: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
