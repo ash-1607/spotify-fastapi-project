@@ -604,8 +604,39 @@ async def create_forgotten_gems_playlist(session_data: dict = Depends(get_curren
 #         logger.error(f"Error during AI analysis: {e}")
 #         raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
 
+def generate_witty_summary(top_tracks, top_artists):
+    prompt = f"""
+    Based on these top 10 songs: {', '.join(top_tracks)}
+    And these top 5 artists: {', '.join(top_artists)}
+
+    Write a short, fun, and witty one-paragraph response
+    teasing the user about their music taste.
+    """
+
+    resp = genai.generate_text(
+        model="models/text-bison-001",
+        prompt=prompt,
+        max_output_tokens=120,
+    )
+
+    if isinstance(resp, dict) and "candidates" in resp:
+        return resp["candidates"][0].get("content") or resp["candidates"][0].get("text", "")
+    if hasattr(resp, "result"):
+        return resp.result
+    if hasattr(resp, "text"):
+        return resp.text() if callable(resp.text) else resp.text
+    return str(resp)
+
 @app.get("/me/ai-analysis")
 async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
+    # assume session_data contains "top_tracks" and "top_artists"
+    top_tracks = session_data.get("top_tracks", [])[:10]
+    top_artists = session_data.get("top_artists", [])[:5]
+
+    witty_response = generate_witty_summary(top_tracks, top_artists)
+
+    return {"ai_analysis": witty_response}
+    
     """
     Fetch user's Spotify top items, call a lower-latency Gemini model,
     and return a short analysis. Defensive, logged, and non-blocking.
