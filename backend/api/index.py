@@ -591,7 +591,7 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
 
         # 4. Call the Generative AI
         model = genai.GenerativeModel('gemini-pro')
-        response = await model.generate_content_async(prompt)
+        response = await model.generate_content(prompt)
 
         # 5. Return the AI's generated text
         return {"analysis": response.text}
