@@ -14,7 +14,7 @@ import axios from 'axios';
 
 // ✅ This URL looks correct for now.
 // WARNING: Remember to update this every time you restart ngrok!
-const API_BASE_URL = 'https://f1c0510fee9e.ngrok-free.app';
+const API_BASE_URL = 'https://spotify-fastapi-project.vercel.app';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
