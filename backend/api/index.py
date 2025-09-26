@@ -22,6 +22,9 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 # for forgotten gems feature
 import datetime
 
+# for ai analysis
+import google.generativeai as genai
+
 # Add this line near your other global variables to get the logger
 logger = logging.getLogger("uvicorn")
 
@@ -39,6 +42,7 @@ SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 SPOTIFY_SCOPES = os.getenv("SPOTIFY_SCOPES", "user-read-email")
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", secrets.token_urlsafe(32))
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 print("Redirect URI in use:", SPOTIFY_REDIRECT_URI)
 
@@ -543,3 +547,55 @@ async def create_forgotten_gems_playlist(session_data: dict = Depends(get_curren
     except httpx.HTTPStatusError as e:
         logger.error(f"Spotify API error creating forgotten gems: {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
+    
+
+@app.get("/me/ai-analysis")
+async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Fetches user's top data, sends it to the Gemini AI,
+    and returns a generated "music taste" analysis.
+    """
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    try:
+        # 1. Fetch user's top data from Spotify
+        async with httpx.AsyncClient() as client:
+            artist_resp = await client.get(
+                f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", 
+                headers=headers
+            )
+            artist_resp.raise_for_status()
+
+            track_resp = await client.get(
+                f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term", 
+                headers=headers
+            )
+            track_resp.raise_for_status()
+
+        # 2. Extract the names to build our prompt
+        top_artists = [a['name'] for a in artist_resp.json()['items']]
+        top_tracks = [t['name'] for t in track_resp.json()['items']]
+
+        # 3. Engineer the prompt for the AI
+        prompt = f"""
+        You are a witty, expert music critic. 
+        A user has provided their Spotify data:
+        - Top 5 Artists: {', '.join(top_artists)}
+        - Top 10 Tracks: {', '.join(top_tracks)}
+
+        Based on this, write a short, fun, and insightful "roast" or "analysis" 
+        of their music taste in 100 words or less. 
+        Speak directly to the user (e.g., "Your taste is...").
+        """
+
+        # 4. Call the Generative AI
+        model = genai.GenerativeModel('gemini-pro')
+        response = await model.generate_content_async(prompt)
+
+        # 5. Return the AI's generated text
+        return {"analysis": response.text}
+
+    except Exception as e:
+        logger.error(f"Error during AI analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")

@@ -7,6 +7,7 @@ import PlaylistDetailScreen from './src/screens/PlaylistDetailScreen';
 import TopTracksScreen from './src/screens/TopTracksScreen';
 import TopArtistsScreen from './src/screens/TopArtistsScreen';
 import ForgottenGemsScreen from './src/screens/ForgottenGemsScreen';
+import AIAnalysisScreen from './src/screens/AIAnalysisScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   TopTracks: undefined;
   TopArtists: undefined;
   ForgottenGems: undefined;
+  AIAnalysis: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -32,6 +34,7 @@ export default function App() {
         <Stack.Screen name="TopTracks" component={TopTracksScreen} options={{ title: 'Your Top Tracks' }}/>
         <Stack.Screen name="TopArtists" component={TopArtistsScreen} options={{ title: 'Your Top Artists' }}/>
         <Stack.Screen name="ForgottenGems" component={ForgottenGemsScreen} options={{ title: 'Forgotten Gems' }}/>
+        <Stack.Screen name="AIAnalysis" component={AIAnalysisScreen} options={{title: "Your AI Analyst"}}/>
       </Stack.Navigator>
     </NavigationContainer>
   );

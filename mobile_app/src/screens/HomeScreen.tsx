@@ -263,6 +263,11 @@ export default function HomeScreen({ navigation }: any) {
         />
 
         <Button
+          title="Ask AI Music Analyst"
+          onPress={() => navigation.navigate('AIAnalysis')}
+        />
+
+        <Button
           title="Logout"
           onPress={handleLogout}
           color="#FF5A5F"
