@@ -18,6 +18,10 @@ from typing import Optional
 import logging
 from fastapi import Depends, Header
 from starlette.status import HTTP_401_UNAUTHORIZED
+
+# for forgotten gems feature
+import datetime
+
 # Add this line near your other global variables to get the logger
 logger = logging.getLogger("uvicorn")
 
@@ -475,4 +479,67 @@ async def get_currently_playing(session_data: dict = Depends(get_current_mobile_
             
     except httpx.HTTPStatusError as e:
         logger.error(f"Spotify API error fetching currently-playing: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
+    
+
+@app.post("/features/forgotten-gems")
+async def create_forgotten_gems_playlist(session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Creates a new playlist for the user containing their "Forgotten Gems"
+    (tracks from their all-time top 50 that are not in their recent top 50).
+    """
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Get Top 50 All-Time (long_term)
+            long_term_resp = await client.get(
+                f"{API_BASE}/me/top/tracks?time_range=long_term&limit=50", headers=headers
+            )
+            long_term_resp.raise_for_status()
+            long_term_tracks = {track['id']: track for track in long_term_resp.json()['items']}
+
+            # 2. Get Top 50 Recent (short_term)
+            short_term_resp = await client.get(
+                f"{API_BASE}/me/top/tracks?time_range=short_term&limit=50", headers=headers
+            )
+            short_term_resp.raise_for_status()
+            short_term_track_ids = {track['id'] for track in short_term_resp.json()['items']}
+
+            # 3. Find the "Forgotten Gems" using a set difference
+            gem_ids = long_term_tracks.keys() - short_term_track_ids
+            if not gem_ids:
+                return JSONResponse(content={"name": "No forgotten gems found!", "external_urls": {"spotify": ""}}, status_code=200)
+
+            gem_track_uris = [f"spotify:track:{id}" for id in gem_ids]
+
+            # 4. Get the User ID
+            user_profile_resp = await client.get(f"{API_BASE}/me", headers=headers)
+            user_profile_resp.raise_for_status()
+            user_id = user_profile_resp.json()['id']
+            
+            # 5. Create a new, empty playlist
+            today = datetime.date.today().strftime("%b %d, %Y")
+            playlist_data = {
+                "name": f"Forgotten Gems ({today})",
+                "description": "Your top songs from the past that you haven't listened to in a while. Curated by Rewind.",
+                "public": False
+            }
+            create_playlist_resp = await client.post(
+                f"{API_BASE}/users/{user_id}/playlists", headers=headers, json=playlist_data
+            )
+            create_playlist_resp.raise_for_status()
+            new_playlist = create_playlist_resp.json()
+            new_playlist_id = new_playlist['id']
+
+            # 6. Add the "gem" tracks to the new playlist
+            await client.post(
+                f"{API_BASE}/playlists/{new_playlist_id}/tracks", headers=headers, json={"uris": gem_track_uris}
+            )
+            
+            return new_playlist
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Spotify API error creating forgotten gems: {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())

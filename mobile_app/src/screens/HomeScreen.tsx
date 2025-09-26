@@ -258,6 +258,11 @@ export default function HomeScreen({ navigation }: any) {
         />
 
         <Button
+          title="Find Forgotten Gems"
+          onPress={() => navigation.navigate('ForgottenGems')}
+        />
+
+        <Button
           title="Logout"
           onPress={handleLogout}
           color="#FF5A5F"
