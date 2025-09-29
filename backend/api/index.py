@@ -23,9 +23,10 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 import datetime
 
 # for ai analysis
-import google.generativeai as genai
+# import google.generativeai as genai
 import asyncio
 import logging
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,9 @@ SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 SPOTIFY_SCOPES = os.getenv("SPOTIFY_SCOPES", "user-read-email")
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", secrets.token_urlsafe(32))
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 print("Redirect URI in use:", SPOTIFY_REDIRECT_URI)
 
@@ -604,132 +607,92 @@ async def create_forgotten_gems_playlist(session_data: dict = Depends(get_curren
 #         logger.error(f"Error during AI analysis: {e}")
 #         raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
 
-def generate_witty_summary(top_tracks, top_artists):
-    prompt = f"""
-    Based on these top 10 songs: {', '.join(top_tracks)}
-    And these top 5 artists: {', '.join(top_artists)}
+# def generate_witty_summary(top_tracks, top_artists):
+#     prompt = f"""
+#     Based on these top 10 songs: {', '.join(top_tracks)}
+#     And these top 5 artists: {', '.join(top_artists)}
 
-    Write a short, fun, and witty one-paragraph response
-    teasing the user about their music taste.
-    """
+#     Write a short, fun, and witty one-paragraph response
+#     teasing the user about their music taste.
+#     """
 
-    resp = genai.generate_text(
-        model="models/text-bison-001",
-        prompt=prompt,
-        max_output_tokens=120,
-    )
+#     resp = genai.generate_text(
+#         model="models/text-bison-001",
+#         prompt=prompt,
+#         max_output_tokens=120,
+#     )
 
-    if isinstance(resp, dict) and "candidates" in resp:
-        return resp["candidates"][0].get("content") or resp["candidates"][0].get("text", "")
-    if hasattr(resp, "result"):
-        return resp.result
-    if hasattr(resp, "text"):
-        return resp.text() if callable(resp.text) else resp.text
-    return str(resp)
+#     if isinstance(resp, dict) and "candidates" in resp:
+#         return resp["candidates"][0].get("content") or resp["candidates"][0].get("text", "")
+#     if hasattr(resp, "result"):
+#         return resp.result
+#     if hasattr(resp, "text"):
+#         return resp.text() if callable(resp.text) else resp.text
+#     return str(resp)
 
 @app.get("/me/ai-analysis")
 async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
-    # assume session_data contains "top_tracks" and "top_artists"
-    top_tracks = session_data.get("top_tracks", [])[:10]
-    top_artists = session_data.get("top_artists", [])[:5]
-
-    witty_response = generate_witty_summary(top_tracks, top_artists)
-
-    return {"ai_analysis": witty_response}
-    
     """
-    Fetch user's Spotify top items, call a lower-latency Gemini model,
-    and return a short analysis. Defensive, logged, and non-blocking.
+    Fetches user's Spotify data, builds a prompt, calls the Grok model
+    via OpenRouter, and returns the AI-generated analysis.
     """
-    t0 = time.monotonic()
+    access_token = session_data["access_token"]
+    headers_spotify = {"Authorization": f"Bearer {access_token}"}
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
 
-    # basic validation
-    access_token = session_data.get("access_token")
-    if not access_token:
-        logger.warning("Missing access_token in session_data")
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    headers = {"Authorization": f"Bearer {access_token}"}
+    if not openrouter_key:
+        raise HTTPException(status_code=500, detail="AI service is not configured.")
 
     try:
-        # 1) Fetch Spotify data with short timeouts
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-            artist_resp = await client.get(
-                f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term",
-                headers=headers,
-            )
+        # 1. Fetch Spotify data concurrently
+        async with httpx.AsyncClient() as client:
+            artist_task = client.get(f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", headers=headers_spotify)
+            track_task = client.get(f"{API_BASE}/me/top/tracks?limit=5&time_range=medium_term", headers=headers_spotify)
+            artist_resp, track_resp = await asyncio.gather(artist_task, track_task)
             artist_resp.raise_for_status()
-
-            track_resp = await client.get(
-                f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term",
-                headers=headers,
-            )
             track_resp.raise_for_status()
 
-        t1 = time.monotonic()
-
-        # Defensive extraction & truncation
-        top_artists = [a.get("name", "") for a in artist_resp.json().get("items", [])][:5]
-        top_tracks = [t.get("name", "") for t in track_resp.json().get("items", [])][:10]
-
-        # Build a compact prompt (smaller prompt -> lower latency / cost)
-        prompt = (
-            "You are a witty, expert music critic. "
-            "A user has provided their Spotify data:\n"
-            f"- Top 5 Artists: {', '.join(top_artists)}\n"
-            f"- Top 10 Tracks: {', '.join(top_tracks)}\n\n"
-            "Write a short, fun, and insightful roast/analysis of their music taste in 100 words or less. "
-            "Speak directly to the user (use 'you')."
-        )
-
-        # 2) Call the model in a thread if SDK is synchronous
-        def call_model_sync(p: str) -> str:
-            # pick a flash model; change if your account permits others
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            # generate_content shape varies between SDK versions; pass a dict for clarity
-            result = model.generate_content(
-                {
-                    "contents": p,
-                    "maxOutputTokens": 160,
-                    "candidateCount": 1,
-                }
+            # 2. Extract data and build the prompt from your test script's logic
+            top_artists = [a.get("name", "") for a in artist_resp.json().get("items", [])]
+            top_tracks = [t.get("name", "") for t in track_resp.json().get("items", [])]
+            
+            prompt = (
+                "Top artists: " + ", ".join(top_artists) + "\n"
+                "Top songs: " + "; ".join(top_tracks) + "\n\n"
+                "Write a witty, friendly ~100-word summary of this user's listening habits. "
+                "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
+                "and keep it punchy and personable. Keep output under 140 words."
             )
 
-            # handle common return shapes
-            if hasattr(result, "text"):
-                return result.text() if callable(result.text) else result.text
-            if getattr(result, "response", None) is not None:
-                r = result.response
-                return r.text() if callable(r.text) else getattr(r, "text", str(r))
-            # fallback
-            return str(result)
+            # 3. Call the OpenRouter API
+            headers_openrouter = {
+                "Authorization": f"Bearer {openrouter_key}",
+            }
+            # Note: httpx's `json` parameter automatically sets 'Content-Type: application/json'
+            payload = {
+                "model": "x-ai/grok-4-fast:free", # Using the model from your test
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            
+            response_ai = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers_openrouter,
+                json=payload,
+                timeout=30.0 # Give it a generous timeout
+            )
+            response_ai.raise_for_status()
+            
+            ai_text = response_ai.json()["choices"][0]["message"]["content"].strip()
+            
+            # 4. Return the result
+            return {"analysis": ai_text}
 
-        t_model_start = time.monotonic()
-        try:
-            ai_text = await asyncio.to_thread(call_model_sync, prompt)
-        except Exception as e:
-            # Log full exception for debugging and return a provider-specific error
-            logger.exception("AI model call failed: %s", e)
-            raise HTTPException(status_code=502, detail="AI provider error")
-
-        t2 = time.monotonic()
-        logger.info(
-            "AI analysis timings (s): total=%.2f fetch_spotify=%.2f model=%.2f",
-            t2 - t0,
-            t1 - t0,
-            t2 - t1,
-        )
-
-        # Return the AI text (trim/limit length defensively)
-        safe_text = (ai_text or "").strip()
-        if len(safe_text) > 5000:
-            safe_text = safe_text[:5000] + "..."
-
-        return JSONResponse({"analysis": safe_text})
-
-    except HTTPException:
-        # Re-throw HTTPExceptions we raised above (401/502)
-        raise
-    except Exception as exc:
-        logger.exception("Unhandled error during /me/ai-analysis: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"API error during AI analysis: {e.response.text}")
+        if "openrouter" in str(e.request.url):
+            raise HTTPException(status_code=502, detail="AI provider error.")
+        else:
+            raise HTTPException(status_code=e.response.status_code, detail="Could not fetch Spotify data.")
+    except Exception as e:
+        logger.exception(f"Unhandled error during AI analysis: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during AI analysis.")
