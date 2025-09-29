@@ -685,7 +685,7 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
                 f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
                 "Write a witty, friendly ~100-word summary of this user's listening habits. "
                 "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
-                "and keep it punchy and personable. Keep output under 100 words (NOTE: do not mention the number of words used in your output)."
+                "and keep it punchy and personable. For mentioning artists, primarily use the Top 5 artists, but in case you are referring to a particular song or trying to associate an artist with a song, then you can mention the artist of that particular song. Keep output under 100 words (NOTE: do not mention the number of words used in your output)."
             )
 
             # 3. Call the OpenRouter API
