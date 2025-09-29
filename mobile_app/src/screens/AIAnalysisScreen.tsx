@@ -23,8 +23,8 @@ const AIAnalysisScreen = () => {
     setError(null);
     setAnalysis(null);
     try {
-      const response = await api.get<{ ai_analysis: string }>('/me/ai-analysis');
-      setAnalysis(response.data.ai_analysis);
+      const response = await api.get<{ analysis: string }>('/me/ai-analysis');
+      setAnalysis(response.data.analysis);
     } catch (err: any) {
       console.error('Failed to fetch AI analysis:', err);
       setError(err.response?.data?.detail || 'Failed to get analysis.');

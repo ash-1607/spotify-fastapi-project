@@ -647,7 +647,7 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
         # 1. Fetch Spotify data concurrently
         async with httpx.AsyncClient() as client:
             artist_task = client.get(f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", headers=headers_spotify)
-            track_task = client.get(f"{API_BASE}/me/top/tracks?limit=5&time_range=medium_term", headers=headers_spotify)
+            track_task = client.get(f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term", headers=headers_spotify)
             artist_resp, track_resp = await asyncio.gather(artist_task, track_task)
             artist_resp.raise_for_status()
             track_resp.raise_for_status()
@@ -656,12 +656,28 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
             top_artists = [a.get("name", "") for a in artist_resp.json().get("items", [])]
             top_tracks = [t.get("name", "") for t in track_resp.json().get("items", [])]
             
+            # --- CHANGE 2: Format tracks to include their artists ---
+            top_tracks_with_artists = []
+            for track in track_resp.json().get("items", []):
+                if track and track.get('name') and track.get('artists'):
+                    artist_names = ', '.join([a.get('name', '') for a in track['artists']])
+                    top_tracks_with_artists.append(f"'{track['name']}' by {artist_names}")
+
+            # prompt = (
+            #     "Top artists: " + ", ".join(top_artists) + "\n"
+            #     "Top songs: " + "; ".join(top_tracks) + "\n\n"
+            #     "Write a witty, friendly ~100-word summary of this user's listening habits. "
+            #     "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
+            #     "and keep it punchy and personable. Keep output under 140 words."
+            # )
+
             prompt = (
-                "Top artists: " + ", ".join(top_artists) + "\n"
-                "Top songs: " + "; ".join(top_tracks) + "\n\n"
-                "Write a witty, friendly ~100-word summary of this user's listening habits. "
-                "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
-                "and keep it punchy and personable. Keep output under 140 words."
+                "You are a witty, expert music critic. "
+                "A user has provided their Spotify data:\n"
+                f"- Top 5 Artists: {', '.join(top_artists)}\n"
+                f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
+                "Based on this, write a short, fun, and insightful analysis of their music taste in 100 words or less. "
+                "Speak directly to the user (use 'you')."
             )
 
             # 3. Call the OpenRouter API
