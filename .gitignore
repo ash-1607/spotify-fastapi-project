@@ -33,6 +33,10 @@ main.py
 /backend/*.pyc
 /backend/.venv/
 /backend/venv/
+/backend/venv2/
+/backend/.venv2
+/backend/test*
+/backend/generated_cover.png
 
 # --- React Native / Mobile ---
 /mobile-app/node_modules/
