@@ -671,13 +671,21 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
             #     "and keep it punchy and personable. Keep output under 140 words."
             # )
 
+            # prompt = (
+            #     "You are a witty, expert music critic. "
+            #     "A user has provided their Spotify data:\n"
+            #     f"- Top 5 Artists: {', '.join(top_artists)}\n"
+            #     f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
+            #     "Based on this, write a short, fun, and insightful analysis of their music taste in 100 words or less. "
+            #     "Speak directly to the user (use 'you')."
+            # )
+
             prompt = (
-                "You are a witty, expert music critic. "
-                "A user has provided their Spotify data:\n"
                 f"- Top 5 Artists: {', '.join(top_artists)}\n"
                 f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
-                "Based on this, write a short, fun, and insightful analysis of their music taste in 100 words or less. "
-                "Speak directly to the user (use 'you')."
+                "Write a witty, friendly ~100-word summary of this user's listening habits. "
+                "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
+                "and keep it punchy and personable. Keep output under 100 words."
             )
 
             # 3. Call the OpenRouter API
