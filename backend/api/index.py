@@ -53,7 +53,6 @@ APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", secrets.token_urlsafe(32))
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 # genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 # GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 print("Redirect URI in use:", SPOTIFY_REDIRECT_URI)
 
