@@ -16,15 +16,23 @@
         android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
-        android:exported="true">
+        android:exported="true"
+        android:enabled="true">
+
+        <!-- Launcher (must be separate) -->
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+
+        <!-- Deep link (separate filter) -->
+        <intent-filter android:autoVerify="false">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="myapp" android:host="auth" />
         </intent-filter>
-      </activity>
+    </activity>
+
     </application>
 </manifest>
