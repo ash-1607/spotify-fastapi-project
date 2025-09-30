@@ -28,6 +28,9 @@ import asyncio
 import logging
 from openai import OpenAI
 
+import base64
+import json
+
 logger = logging.getLogger(__name__)
 
 # Add this line near your other global variables to get the logger
@@ -720,3 +723,120 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
     except Exception as e:
         logger.exception(f"Unhandled error during AI analysis: {e}")
         raise HTTPException(status_code=500, detail="Internal server error during AI analysis.")
+
+
+# ENDPOINT 1: Get basic playlist details
+@app.get("/playlist/{playlist_id}/details")
+async def get_playlist_details(playlist_id: str, session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Gets the main playlist object (name, description, cover image) from Spotify.
+    """
+    access_token = session_data["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    api_url = f"{API_BASE}/playlists/{playlist_id}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Spotify API error fetching playlist details: {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
+
+# ENDPOINT 2: Generate and save AI description
+@app.post("/playlist/{playlist_id}/ai-description")
+async def generate_ai_description(playlist_id: str, session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Generates a new playlist description using AI and saves it to Spotify.
+    """
+    access_token = session_data["access_token"]
+    headers_spotify = {"Authorization": f"Bearer {access_token}"}
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+
+    if not openrouter_key:
+        raise HTTPException(status_code=500, detail="AI service is not configured.")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Get first 15 tracks from the playlist for context
+            tracks_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}/tracks?limit=15", headers=headers_spotify)
+            tracks_resp.raise_for_status()
+            track_names = [item['track']['name'] for item in tracks_resp.json().get('items', []) if item.get('track')]
+
+            # 2. Build prompt and call text AI (Grok)
+            prompt = f"Playlist songs: {'; '.join(track_names)}. Write a short, punchy 40-60 word playlist description that sells the vibe and suggests when to play it."
+            
+            headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
+            payload = {"model": "x-ai/grok-4-fast:free", "messages": [{"role": "user", "content": prompt}]}
+            response_ai = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
+            response_ai.raise_for_status()
+            ai_description = response_ai.json()["choices"][0]["message"]["content"].strip()
+            
+            # 3. Save the new description back to Spotify
+            update_payload = {"description": ai_description}
+            await client.put(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify, json=update_payload)
+            
+            # 4. Return the new description to the app
+            return {"description": ai_description}
+
+    except Exception as e:
+        logger.exception(f"Error generating AI description: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate playlist description.")
+
+
+# ENDPOINT 3: Generate and upload AI cover art
+@app.post("/playlist/{playlist_id}/ai-cover")
+async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_current_mobile_session)):
+    """
+    Generates a new playlist cover using AI and uploads it to Spotify.
+    """
+    access_token = session_data["access_token"]
+    headers_spotify = {"Authorization": f"Bearer {access_token}"}
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    clipdrop_key = os.getenv("CLIPDROP_API_KEY")
+
+    if not openrouter_key or not clipdrop_key:
+        raise HTTPException(status_code=500, detail="AI services are not configured.")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Get playlist details for context
+            playlist_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify)
+            playlist_resp.raise_for_status()
+            playlist_name = playlist_resp.json().get('name', 'a playlist')
+
+            # 2. AI Step 1: Generate a visual prompt from the playlist name
+            prompt_input = f"Based on a playlist named '{playlist_name}', write a 15-word visually descriptive prompt for an image AI to generate a cover art. Focus on mood and style. No text in the image."
+            
+            headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
+            payload = {"model": "x-ai/grok-4-fast:free", "messages": [{"role": "user", "content": prompt_input}], "max_tokens": 50}
+            response_prompt_ai = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
+            response_prompt_ai.raise_for_status()
+            visual_prompt = response_prompt_ai.json()["choices"][0]["message"]["content"].strip()
+            
+            # 3. AI Step 2: Generate the image with Clipdrop
+            headers_clipdrop = {"x-api-key": clipdrop_key}
+            data_clipdrop = {"prompt": visual_prompt}
+            response_image = await client.post("https://clipdrop-api.co/text-to-image/v1", headers=headers_clipdrop, data=data_clipdrop, timeout=60.0)
+            response_image.raise_for_status()
+            image_bytes = response_image.content
+
+            # 4. Format and upload the image to Spotify
+            encoded_image = base64.b64encode(image_bytes)
+            headers_upload = headers_spotify.copy()
+            headers_upload['Content-Type'] = 'image/jpeg'
+            await client.put(f"{API_BASE}/playlists/{playlist_id}/images", headers=headers_upload, content=encoded_image)
+            
+            # 5. Get the new image URL from Spotify
+            # We add a short delay to allow Spotify's CDN to update
+            await asyncio.sleep(3) 
+            final_details_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify)
+            final_details_resp.raise_for_status()
+            new_image_url = final_details_resp.json()['images'][0]['url']
+            
+            return {"imageUrl": new_image_url}
+
+    except Exception as e:
+        logger.exception(f"Error generating AI cover: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate playlist cover.")
