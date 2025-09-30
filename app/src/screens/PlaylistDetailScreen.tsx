@@ -76,6 +76,7 @@ const PlaylistDetailScreen = () => {
   const [loading, setLoading] = useState(true);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [error, setError] = useState<string|null>(null);
 
   // Set the screen title to the playlist name
   useLayoutEffect(() => {
@@ -133,7 +134,7 @@ const PlaylistDetailScreen = () => {
       // Fetch both details and tracks at the same time for better performance
       const [detailsResponse, tracksResponse] = await Promise.all([
         api.get<SimplifiedPlaylist>(`/playlist/${playlistId}/details`),
-        api.get<PlaylistTracksResponse>(`/playlist/${playlistId}/tracks`),
+        api.get<PlaylistTracksResponse>(`/playlist/${playlistId}`),
       ]);
       
       setPlaylist(detailsResponse.data);

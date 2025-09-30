@@ -20,7 +20,8 @@ export interface PlaylistOwner {
 export interface SimplifiedPlaylist {
   id: string;
   name: string;
-  images: SpotifyImage[];
+  images?: SpotifyImage[];        // optional — avoids runtime undefined access
+  description?: string | null;    // <-- add this (optional)
   tracks: PlaylistTrackInfo;
   owner: PlaylistOwner;
 }
