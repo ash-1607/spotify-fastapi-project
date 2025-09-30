@@ -808,11 +808,14 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
                 f"Based on a playlist named '{playlist_name}', write a 15-word visually descriptive prompt "
                 "for an image AI to generate a cover art. Focus on mood and style. No text in the image."
             )
+            print("Sending the tracks to grokai to get prompt for clipdrop")
             headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
             payload = {"model": "x-ai/grok-4-fast:free", "messages": [{"role": "user", "content": prompt_input}], "max_tokens": 50}
             resp_prompt = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
             resp_prompt.raise_for_status()
             visual_prompt = resp_prompt.json()["choices"][0]["message"]["content"].strip()
+
+            print("Got the prompt; sending prompt to clipdrop")
 
             # 3) Call Clipdrop (send JSON)
             clipdrop_url = "https://clipdrop-api.co/text-to-image/v1"
@@ -824,6 +827,8 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
             resp_image = await client.post(clipdrop_url, headers=headers_clipdrop, json=clip_payload, timeout=120.0)
             resp_image.raise_for_status()
             image_bytes = resp_image.content  # raw bytes
+
+            print("Got the image")
 
             # 4) Ensure image size <= 256 KB (Spotify requirement). If too big, try to compress to JPEG.
             MAX_BYTES = 256 * 1024
@@ -862,6 +867,8 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
                     # If Pillow not available or conversion failed, return informative error
                     raise HTTPException(status_code=500, detail="Failed to compress generated image; install 'pillow' to enable automatic resizing/compression.")
 
+            print("Got the image")
+
             # 5) Upload raw bytes to Spotify (no base64)
             headers_upload = headers_spotify.copy()
             headers_upload['Content-Type'] = 'image/jpeg'  # Clipdrop typically returns PNG but Spotify accepts jpeg/png; we convert to JPEG above if needed.
@@ -871,12 +878,15 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
                 logger.error("Spotify upload failed", {"status": upload_resp.status_code, "text": upload_resp.text})
                 raise HTTPException(status_code=upload_resp.status_code, detail=f"Spotify image upload failed: {upload_resp.text}")
 
+            print("Uploaded te image")
             # 6) Wait briefly and fetch updated playlist images
             await asyncio.sleep(2)
             final_details_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify)
             final_details_resp.raise_for_status()
             images = final_details_resp.json().get('images', [])
             new_image_url = images[0]['url'] if images else None
+
+            print("Returning image")
 
             return {"imageUrl": new_image_url}
 
