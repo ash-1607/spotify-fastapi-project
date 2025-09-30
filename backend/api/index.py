@@ -1016,12 +1016,14 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
                 logger.warning(f"Could not write compressed debug image: {e}")
 
             # 5) Upload to Spotify (raw JPEG bytes)
+            b64_image = base64.b64encode(jpeg_bytes).decode("utf-8")
+
             headers_upload = headers_spotify.copy()
             headers_upload["Content-Type"] = "image/jpeg"
             upload_resp = await client.put(
                 f"{API_BASE}/playlists/{playlist_id}/images",
                 headers=headers_upload,
-                content=jpeg_bytes,
+                content=b64_image,   # ✅ base64 string
                 timeout=30.0,
             )
 
