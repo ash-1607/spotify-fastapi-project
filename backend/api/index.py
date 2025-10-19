@@ -616,6 +616,9 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
                 json=payload,
                 timeout=30.0 # Give it a generous timeout
             )
+            # helpful debug logging before raising
+            logger.info("OpenRouter status: %s", response_ai.status_code)
+            logger.info("OpenRouter body: %s", response_ai.text)
             response_ai.raise_for_status()
             
             ai_text = response_ai.json()["choices"][0]["message"]["content"].strip()
