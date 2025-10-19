@@ -622,6 +622,10 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
             response_ai.raise_for_status()
             
             ai_text = response_ai.json()["choices"][0]["message"]["content"].strip()
+
+            idx = ai_text.rfind('.')
+
+            ai_text = ai_text[: idx + 1].strip()
             
             # 4. Return the result
             return {"analysis": ai_text}
@@ -680,7 +684,7 @@ async def generate_ai_description(playlist_id: str, session_data: dict = Depends
             prompt = f"Playlist songs: {'; '.join(track_names)}. Write a short, punchy 40-60 word playlist description that sells the vibe and suggests when to play it."
             
             headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
-            payload = {"model": "x-ai/grok-4-fast:free", "messages": [{"role": "user", "content": prompt}]}
+            payload = {"model": "deepseek/deepseek-chat-v3.1:free", "messages": [{"role": "user", "content": prompt}]}
             response_ai = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
             response_ai.raise_for_status()
             ai_description = response_ai.json()["choices"][0]["message"]["content"].strip()
@@ -730,7 +734,7 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
             )
             headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
             payload = {
-                "model": "x-ai/grok-4-fast:free",
+                "model": "deepseek/deepseek-chat-v3.1:free",
                 "messages": [{"role": "user", "content": prompt_input}],
                 "max_tokens": 50,
             }
