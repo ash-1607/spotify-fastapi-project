@@ -606,7 +606,7 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
             }
             # Note: httpx's `json` parameter automatically sets 'Content-Type: application/json'
             payload = {
-                "model": "x-ai/grok-4-fast:free", # Using the model from your test
+                "model": "deepseek/deepseek-chat-v3.1:free", 
                 "messages": [{"role": "user", "content": prompt}],
             }
             logger.info("Sending request...")
