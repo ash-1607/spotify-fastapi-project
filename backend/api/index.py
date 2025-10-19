@@ -237,7 +237,6 @@ def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/")
 
-
 # --- DELETE your old @app.get("/me") function ---
 # --- ADD this new version. It's almost identical to your /playlists endpoint ---
 
@@ -557,81 +556,6 @@ async def create_forgotten_gems_playlist(session_data: dict = Depends(get_curren
     except httpx.HTTPStatusError as e:
         logger.error(f"Spotify API error creating forgotten gems: {e.response.text}")
         raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
-    
-
-# @app.get("/me/ai-analysis")
-# async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
-#     """
-#     Fetches user's top data, sends it to the Gemini AI,
-#     and returns a generated "music taste" analysis.
-#     """
-#     access_token = session_data["access_token"]
-#     headers = {"Authorization": f"Bearer {access_token}"}
-
-#     try:
-#         # 1. Fetch user's top data from Spotify
-#         async with httpx.AsyncClient() as client:
-#             artist_resp = await client.get(
-#                 f"{API_BASE}/me/top/artists?limit=5&time_range=medium_term", 
-#                 headers=headers
-#             )
-#             artist_resp.raise_for_status()
-
-#             track_resp = await client.get(
-#                 f"{API_BASE}/me/top/tracks?limit=10&time_range=medium_term", 
-#                 headers=headers
-#             )
-#             track_resp.raise_for_status()
-
-#         # 2. Extract the names to build our prompt
-#         top_artists = [a['name'] for a in artist_resp.json()['items']]
-#         top_tracks = [t['name'] for t in track_resp.json()['items']]
-
-#         # 3. Engineer the prompt for the AI
-#         prompt = f"""
-#         You are a witty, expert music critic. 
-#         A user has provided their Spotify data:
-#         - Top 5 Artists: {', '.join(top_artists)}
-#         - Top 10 Tracks: {', '.join(top_tracks)}
-
-#         Based on this, write a short, fun, and insightful "roast" or "analysis" 
-#         of their music taste in 100 words or less. 
-#         Speak directly to the user (e.g., "Your taste is...").
-#         """
-
-#         # 4. Call the Generative AI
-#         model = genai.GenerativeModel('gemini-pro')
-#         response = await model.generate_content(prompt)
-
-#         # 5. Return the AI's generated text
-#         return {"analysis": response.text}
-
-#     except Exception as e:
-#         logger.error(f"Error during AI analysis: {e}")
-#         raise HTTPException(status_code=500, detail="Failed to generate AI analysis.")
-
-# def generate_witty_summary(top_tracks, top_artists):
-#     prompt = f"""
-#     Based on these top 10 songs: {', '.join(top_tracks)}
-#     And these top 5 artists: {', '.join(top_artists)}
-
-#     Write a short, fun, and witty one-paragraph response
-#     teasing the user about their music taste.
-#     """
-
-#     resp = genai.generate_text(
-#         model="models/text-bison-001",
-#         prompt=prompt,
-#         max_output_tokens=120,
-#     )
-
-#     if isinstance(resp, dict) and "candidates" in resp:
-#         return resp["candidates"][0].get("content") or resp["candidates"][0].get("text", "")
-#     if hasattr(resp, "result"):
-#         return resp.result
-#     if hasattr(resp, "text"):
-#         return resp.text() if callable(resp.text) else resp.text
-#     return str(resp)
 
 @app.get("/me/ai-analysis")
 async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_session)):
@@ -642,6 +566,8 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
     access_token = session_data["access_token"]
     headers_spotify = {"Authorization": f"Bearer {access_token}"}
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
+
+    logger.info("Initialising...")
 
     if not openrouter_key:
         raise HTTPException(status_code=500, detail="AI service is not configured.")
@@ -666,23 +592,6 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
                     artist_names = ', '.join([a.get('name', '') for a in track['artists']])
                     top_tracks_with_artists.append(f"'{track['name']}' by {artist_names}")
 
-            # prompt = (
-            #     "Top artists: " + ", ".join(top_artists) + "\n"
-            #     "Top songs: " + "; ".join(top_tracks) + "\n\n"
-            #     "Write a witty, friendly ~100-word summary of this user's listening habits. "
-            #     "Use light humor (no profanity), mention one clear observation (favorite artist or mood), "
-            #     "and keep it punchy and personable. Keep output under 140 words."
-            # )
-
-            # prompt = (
-            #     "You are a witty, expert music critic. "
-            #     "A user has provided their Spotify data:\n"
-            #     f"- Top 5 Artists: {', '.join(top_artists)}\n"
-            #     f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
-            #     "Based on this, write a short, fun, and insightful analysis of their music taste in 100 words or less. "
-            #     "Speak directly to the user (use 'you')."
-            # )
-
             prompt = (
                 f"- Top 5 Artists: {', '.join(top_artists)}\n"
                 f"- Top 10 Tracks: {'; '.join(top_tracks_with_artists)}\n\n"
@@ -700,7 +609,7 @@ async def get_ai_analysis(session_data: dict = Depends(get_current_mobile_sessio
                 "model": "x-ai/grok-4-fast:free", # Using the model from your test
                 "messages": [{"role": "user", "content": prompt}],
             }
-            
+            logger.info("Sending request...")
             response_ai = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers=headers_openrouter,
@@ -783,119 +692,6 @@ async def generate_ai_description(playlist_id: str, session_data: dict = Depends
     except Exception as e:
         logger.exception(f"Error generating AI description: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate playlist description.")
-
-
-# ENDPOINT 3: Generate and upload AI cover art
-# @app.post("/playlist/{playlist_id}/ai-cover")
-# async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_current_mobile_session)):
-#     access_token = session_data["access_token"]
-#     headers_spotify = {"Authorization": f"Bearer {access_token}"}
-#     openrouter_key = os.getenv("OPENROUTER_API_KEY")
-#     clipdrop_key = os.getenv("CLIPDROP_API_KEY")
-
-#     if not openrouter_key or not clipdrop_key:
-#         raise HTTPException(status_code=500, detail="AI services are not configured.")
-
-#     try:
-#         async with httpx.AsyncClient(timeout=60.0) as client:
-#             # 1) Get playlist name for context
-#             playlist_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify)
-#             playlist_resp.raise_for_status()
-#             playlist_name = playlist_resp.json().get('name', 'a playlist')
-
-#             # 2) Create visual prompt
-#             prompt_input = (
-#                 f"Based on a playlist named '{playlist_name}', write a 15-word visually descriptive prompt "
-#                 "for an image AI to generate a cover art. Focus on mood and style. No text in the image."
-#             )
-#             print("Sending the tracks to grokai to get prompt for clipdrop")
-#             headers_openrouter = {"Authorization": f"Bearer {openrouter_key}"}
-#             payload = {"model": "x-ai/grok-4-fast:free", "messages": [{"role": "user", "content": prompt_input}], "max_tokens": 50}
-#             resp_prompt = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
-#             resp_prompt.raise_for_status()
-#             visual_prompt = resp_prompt.json()["choices"][0]["message"]["content"].strip()
-
-#             print("Got the prompt; sending prompt to clipdrop")
-
-#             # 3) Call Clipdrop (send JSON)
-#             clipdrop_url = "https://clipdrop-api.co/text-to-image/v1"
-#             headers_clipdrop = {
-#                 "x-api-key": clipdrop_key,
-#                 "Content-Type": "application/json"
-#             }
-#             clip_payload = {"prompt": visual_prompt}
-#             resp_image = await client.post(clipdrop_url, headers=headers_clipdrop, json=clip_payload, timeout=120.0)
-#             resp_image.raise_for_status()
-#             image_bytes = resp_image.content  # raw bytes
-
-#             print("Got the image")
-
-#             # 4) Ensure image size <= 256 KB (Spotify requirement). If too big, try to compress to JPEG.
-#             MAX_BYTES = 256 * 1024
-#             if len(image_bytes) > MAX_BYTES:
-#                 try:
-#                     img = Image.open(BytesIO(image_bytes)).convert("RGB")
-#                     # heuristic: progressively reduce quality until size OK or quality low
-#                     quality = 90
-#                     compressed = None
-#                     while quality >= 30:
-#                         buf = BytesIO()
-#                         img.save(buf, format="JPEG", quality=quality, optimize=True)
-#                         data = buf.getvalue()
-#                         if len(data) <= MAX_BYTES:
-#                             compressed = data
-#                             break
-#                         quality -= 10
-#                     if compressed is None:
-#                         # final attempt: resize to 80% then try again once
-#                         w, h = img.size
-#                         img2 = img.resize((int(w*0.8), int(h*0.8)))
-#                         buf = BytesIO()
-#                         img2.save(buf, format="JPEG", quality=60, optimize=True)
-#                         data = buf.getvalue()
-#                         if len(data) <= MAX_BYTES:
-#                             compressed = data
-
-#                     if compressed:
-#                         image_bytes = compressed
-#                     else:
-#                         # still too big; fail with helpful message
-#                         logger.warning("Generated image >256KB and compression attempts failed.")
-#                         raise HTTPException(status_code=500, detail="Generated image too large for Spotify ( >256 KB ). Try simpler prompt or enable compression libraries.")
-#                 except Exception as e:
-#                     logger.exception("Image compression fallback failed.")
-#                     # If Pillow not available or conversion failed, return informative error
-#                     raise HTTPException(status_code=500, detail="Failed to compress generated image; install 'pillow' to enable automatic resizing/compression.")
-
-#             print("Got the image")
-
-#             # 5) Upload raw bytes to Spotify (no base64)
-#             headers_upload = headers_spotify.copy()
-#             headers_upload['Content-Type'] = 'image/jpeg'  # Clipdrop typically returns PNG but Spotify accepts jpeg/png; we convert to JPEG above if needed.
-#             upload_resp = await client.put(f"{API_BASE}/playlists/{playlist_id}/images", headers=headers_upload, content=image_bytes, timeout=30.0)
-#             if upload_resp.status_code not in (202, 200):
-#                 # Spotify sometimes returns 202 or 200 on success; capture error
-#                 logger.error("Spotify upload failed", {"status": upload_resp.status_code, "text": upload_resp.text})
-#                 raise HTTPException(status_code=upload_resp.status_code, detail=f"Spotify image upload failed: {upload_resp.text}")
-
-#             print("Uploaded te image")
-#             # 6) Wait briefly and fetch updated playlist images
-#             await asyncio.sleep(2)
-#             final_details_resp = await client.get(f"{API_BASE}/playlists/{playlist_id}", headers=headers_spotify)
-#             final_details_resp.raise_for_status()
-#             images = final_details_resp.json().get('images', [])
-#             new_image_url = images[0]['url'] if images else None
-
-#             print("Returning image")
-
-#             return {"imageUrl": new_image_url}
-
-#     except httpx.HTTPStatusError as e:
-#         logger.exception(f"Error generating AI cover - HTTP: {e.response.status_code} {e.response.text}")
-#         raise HTTPException(status_code=502, detail=f"External API error: {e.response.text}")
-#     except Exception as e:
-#         logger.exception(f"Error generating AI cover: {e}")
-#         raise HTTPException(status_code=500, detail="Failed to generate playlist cover.")
 
 # Refined endpoint
 @app.post("/playlist/{playlist_id}/ai-cover")
