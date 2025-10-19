@@ -688,6 +688,10 @@ async def generate_ai_description(playlist_id: str, session_data: dict = Depends
             response_ai = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_openrouter, json=payload, timeout=30.0)
             response_ai.raise_for_status()
             ai_description = response_ai.json()["choices"][0]["message"]["content"].strip()
+
+            idx = ai_description.rfind('.')
+
+            ai_description = ai_description[: idx + 1].strip()
             
             # 3. Save the new description back to Spotify
             update_payload = {"description": ai_description}
@@ -746,6 +750,11 @@ async def generate_ai_cover(playlist_id: str, session_data: dict = Depends(get_c
             )
             resp_prompt.raise_for_status()
             visual_prompt = resp_prompt.json()["choices"][0]["message"]["content"].strip()
+
+            idx = visual_prompt.rfind('.')
+
+            visual_prompt = visual_prompt[: idx + 1].strip()
+
             logger.info("Got visual prompt from AI.")
             logger.debug(f"Visual prompt: {visual_prompt}")
 
